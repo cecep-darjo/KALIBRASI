@@ -36,9 +36,9 @@ function ProtectedRoute({ roles, children }: { roles: UserRole[]; children: Reac
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
+  const { profile, loading } = useAuth();
   if (loading) return <LoadingScreen />;
-  if (session) return <Navigate to="/dashboard" replace />;
+  if (profile) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -56,9 +56,9 @@ function AppRoutes() {
 
       <Route path="/teknisi/tasks" element={<ProtectedRoute roles={['Teknisi']}><TeknisiTasksPage /></ProtectedRoute>} />
 
-      <Route path="/spv/review" element={<ProtectedRoute roles={['SPV']}><ReviewPage stage="SPV" incomingStatus="Submitted" approvedStatus="SPV_Approved" title="Review Supervisor" subtitle="Review data kalibrasi dari teknisi sebelum diteruskan ke Senior SPV." /></ProtectedRoute>} />
+      <Route path="/spv/review" element={<ProtectedRoute roles={['SPV']}><ReviewPage stage="SPV" incomingStatus="Submitted" title="Review Supervisor" subtitle="Review data kalibrasi dari teknisi sebelum diteruskan ke Senior SPV." /></ProtectedRoute>} />
 
-      <Route path="/senior-spv/review" element={<ProtectedRoute roles={['Senior_SPV']}><ReviewPage stage="Senior_SPV" incomingStatus="SPV_Approved" approvedStatus="Senior_SPV_Approved" title="Review Senior Supervisor" subtitle="Review akhir dan otorisasi terbitnya laporan kalibrasi." /></ProtectedRoute>} />
+      <Route path="/senior-spv/review" element={<ProtectedRoute roles={['Senior_SPV']}><ReviewPage stage="Senior_SPV" incomingStatus="SPV_Approved" title="Review Senior Supervisor" subtitle="Review akhir dan otorisasi terbitnya laporan kalibrasi." /></ProtectedRoute>} />
 
       <Route path="/reports" element={<ProtectedRoute roles={['Admin', 'SPV', 'Senior_SPV']}><ReportsPage /></ProtectedRoute>} />
 

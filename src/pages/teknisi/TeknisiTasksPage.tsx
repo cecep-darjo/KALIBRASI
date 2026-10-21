@@ -1,37 +1,45 @@
 import { useEffect, useState } from 'react';
 import { Gauge, ClipboardCheck, Send, Eye } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
+import { api, errorMessage } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { Field, Input, Select, Textarea } from '@/components/ui/Field';
+import { Field, Input, Textarea } from '@/components/ui/Field';
 import { StatusBadge, ParamBadge } from '@/components/ui/Badges';
 import { EmptyState } from '@/components/ui/EmptyState';
-import type { CalibrationTask, CalibrationResult, ParameterType } from '@/lib/types';
+import type {
+  CalibrationTask, CalibrationResult, CalibrationPoint, ParameterType, TaskStatus,
+} from '@/lib/types';
 
 export function TeknisiTasksPage() {
-  const { profile } = useAuth();
   const [tasks, setTasks] = useState<CalibrationTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTask, setActiveTask] = useState<CalibrationTask | null>(null);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    if (!profile) return;
-    const { data } = await supabase
-      .from('calibration_tasks')
-      .select('*, equipment(*), technician(*), result:calibration_results(*)')
-      .eq('technician_id', profile.id)
-      .order('scheduled_date', { ascending: false });
-    setTasks((data ?? []) as CalibrationTask[]);
-    setLoading(false);
+    try {
+      // Backend otomatis membatasi hasil hanya pada tugas milik teknisi yang login.
+      setTasks(await api<CalibrationTask[]>('/tasks'));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <div>
       <PageHeader title="Input Kalibrasi" subtitle="Tugas kalibrasi yang ditugaskan kepada Anda." icon={Gauge} />
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {tasks.length === 0 && !loading ? (
@@ -74,39 +82,34 @@ export function TeknisiTasksPage() {
   );
 }
 
-interface PointRow { standard: string; reading: string; error: string; }
-
 const paramUnits: Record<ParameterType, string> = { Suhu: '°C', Pressure: 'bar', DP: 'Pa', RPM: 'rpm' };
+
+const emptyRow = (): CalibrationPoint => ({ standard: '', reading: '', error: '' });
+const emptyRows = (n = 5) => Array.from({ length: n }, emptyRow);
 
 function CalibrationForm({ task, onClose, onSaved }: { task: CalibrationTask; onClose: () => void; onSaved: () => void }) {
   const param = task.equipment?.parameter_type ?? 'Suhu';
   const unit = paramUnits[param];
   const existing = task.result;
 
-  const [points, setPoints] = useState<PointRow[]>(
-    existing?.as_found_data
-      ? (existing.as_found_data.points as PointRow[]) ?? [{ standard: '', reading: '', error: '' }]
-      : Array.from({ length: 5 }, () => ({ standard: '', reading: '', error: '' }))
+  const [points, setPoints] = useState<CalibrationPoint[]>(
+    existing?.as_found_data?.points?.length ? existing.as_found_data.points : emptyRows()
   );
-  const [pointsLeft, setPointsLeft] = useState<PointRow[]>(
-    existing?.as_left_data
-      ? (existing.as_left_data.points as PointRow[]) ?? Array.from({ length: 5 }, () => ({ standard: '', reading: '', error: '' }))
-      : Array.from({ length: 5 }, () => ({ standard: '', reading: '', error: '' }))
+  const [pointsLeft, setPointsLeft] = useState<CalibrationPoint[]>(
+    existing?.as_left_data?.points?.length ? existing.as_left_data.points : emptyRows()
   );
   const [envTemp, setEnvTemp] = useState(existing?.environment_temp?.toString() ?? '24');
   const [humidity, setHumidity] = useState(existing?.humidity?.toString() ?? '55');
-  const [lkkNotes, setLkkNotes] = useState<string>(
-    (existing?.as_found_data?.lkk_notes as string) ?? ''
-  );
+  const [lkkNotes, setLkkNotes] = useState(existing?.as_found_data?.lkk_notes ?? '');
   const [saving, setSaving] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const updatePoint = (idx: number, key: keyof PointRow, val: string, isLeft: boolean) => {
+  const updatePoint = (idx: number, key: keyof CalibrationPoint, val: string, isLeft: boolean) => {
     const setter = isLeft ? setPointsLeft : setPoints;
     setter(prev => prev.map((p, i) => {
       if (i !== idx) return p;
       const updated = { ...p, [key]: val };
+      // Error dihitung otomatis: bacaan dikurangi nilai standar.
       if (key === 'standard' || key === 'reading') {
         const s = parseFloat(updated.standard);
         const r = parseFloat(updated.reading);
@@ -116,36 +119,30 @@ function CalibrationForm({ task, onClose, onSaved }: { task: CalibrationTask; on
     }));
   };
 
-  async function persist(status: 'In_Progress' | 'Submitted') {
+  async function persist(status: Extract<TaskStatus, 'In_Progress' | 'Submitted'>) {
     setSaving(true);
     setError(null);
-    const asFound = { points, lkk_notes: lkkNotes, parameter: param, unit };
-    const asLeft = { points: pointsLeft, parameter: param, unit };
-    const payload = {
-      task_id: task.id,
-      as_found_data: asFound,
-      as_left_data: asLeft,
-      environment_temp: envTemp ? parseFloat(envTemp) : null,
-      humidity: humidity ? parseFloat(humidity) : null,
-    };
+    try {
+      // 1. Simpan hasil kalibrasi — backend melakukan insert atau update otomatis.
+      await api<CalibrationResult>('/results', {
+        method: 'POST',
+        body: {
+          task_id: task.id,
+          as_found_data: { points, lkk_notes: lkkNotes, parameter: param, unit },
+          as_left_data: { points: pointsLeft, parameter: param, unit },
+          environment_temp: envTemp ? parseFloat(envTemp) : null,
+          humidity: humidity ? parseFloat(humidity) : null,
+        },
+      });
 
-    let resultId = existing?.id;
-    if (existing) {
-      const { error: ue } = await supabase.from('calibration_results').update(payload).eq('id', existing.id);
-      if (ue) { setError(ue.message); setSaving(false); return; }
-    } else {
-      const { data, error: ie } = await supabase.from('calibration_results').insert(payload).select().single();
-      if (ie) { setError(ie.message); setSaving(false); return; }
-      resultId = (data as CalibrationResult).id;
+      // 2. Perbarui status tugas.
+      await api(`/tasks/${task.id}/status`, { method: 'PUT', body: { status } });
+
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+      setSaving(false);
     }
-
-    const taskPayload: Record<string, unknown> = { status };
-    if (status === 'Submitted') taskPayload.completed_at = new Date().toISOString();
-    const { error: te } = await supabase.from('calibration_tasks').update(taskPayload).eq('id', task.id);
-    if (te) { setError(te.message); setSaving(false); return; }
-
-    setSaving(false);
-    onSaved();
   }
 
   return (
@@ -221,9 +218,9 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function DataTable({ title, points, unit, onChange }: {
   title: string;
-  points: PointRow[];
+  points: CalibrationPoint[];
   unit: string;
-  onChange: (i: number, k: keyof PointRow, v: string) => void;
+  onChange: (i: number, k: keyof CalibrationPoint, v: string) => void;
 }) {
   return (
     <div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Wrench, Plus, Pencil, Trash2 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api, errorMessage } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -14,15 +14,31 @@ const paramTypes: ParameterType[] = ['Suhu', 'Pressure', 'DP', 'RPM'];
 export function EquipmentPage() {
   const [items, setItems] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Equipment | null>(null);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data } = await supabase.from('equipment').select('*').order('created_at', { ascending: false });
-    setItems((data ?? []) as Equipment[]);
-    setLoading(false);
+    try {
+      setItems(await api<Equipment[]>('/equipment'));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeEquipment(eq: Equipment) {
+    if (!confirm(`Hapus alat ${eq.tag_number}?`)) return;
+    try {
+      await api(`/equipment/${eq.id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }
 
   return (
@@ -33,6 +49,12 @@ export function EquipmentPage() {
         icon={Wrench}
         action={<Button onClick={() => { setEditing(null); setShowForm(true); }}><Plus className="w-4 h-4" /> Tambah Alat</Button>}
       />
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {items.length === 0 && !loading ? (
@@ -67,9 +89,7 @@ export function EquipmentPage() {
                         <Button size="sm" variant="ghost" onClick={() => { setEditing(eq); setShowForm(true); }}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={async () => {
-                          if (confirm(`Hapus alat ${eq.tag_number}?`)) { await supabase.from('equipment').delete().eq('id', eq.id); load(); }
-                        }}>
+                        <Button size="sm" variant="ghost" onClick={() => removeEquipment(eq)}>
                           <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </Button>
                       </div>
@@ -127,11 +147,16 @@ function EquipmentForm({ equipment, onClose, onSaved }: { equipment: Equipment |
       unit: form.unit || null,
       location: form.location || null,
     };
-    const { error } = equipment
-      ? await supabase.from('equipment').update(payload).eq('id', equipment.id)
-      : await supabase.from('equipment').insert(payload);
-    if (error) { setError(error.message); setSaving(false); return; }
-    onSaved();
+    try {
+      await api(equipment ? `/equipment/${equipment.id}` : '/equipment', {
+        method: equipment ? 'PUT' : 'POST',
+        body: payload,
+      });
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+      setSaving(false);
+    }
   }
 
   return (

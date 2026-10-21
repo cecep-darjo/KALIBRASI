@@ -10,9 +10,9 @@ export function LoginPage() {
   const { signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('Teknisi');
   const [error, setError] = useState<string | null>(null);
@@ -22,15 +22,22 @@ export function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    if (mode === 'login') {
-      const { error } = await signIn(email, password);
-      if (error) { setError(error); setLoading(false); }
-      else { navigate('/dashboard'); }
-    } else {
-      const { error } = await signUp(email, password, username, fullName, role);
-      if (error) { setError(error); setLoading(false); }
-      else { navigate('/dashboard'); }
+
+    const { error: err } = mode === 'login'
+      ? await signIn(username, password)
+      : await signUp(username, password, fullName, email, role);
+
+    if (err) {
+      setError(err);
+      setLoading(false);
+      return;
     }
+    navigate('/dashboard');
+  };
+
+  const switchMode = () => {
+    setMode(mode === 'login' ? 'signup' : 'login');
+    setError(null);
   };
 
   return (
@@ -114,16 +121,47 @@ export function LoginPage() {
                 </Field>
               </>
             )}
-            <Field label="Email">
+            <Field label="Username">
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@perusahaan.com" required className="pl-10" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                <Input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  autoComplete="username"
+                  required
+                  className="pl-10"
+                />
               </div>
             </Field>
+            {mode === 'signup' && (
+              <Field label="Email">
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="email@perusahaan.com"
+                    autoComplete="email"
+                    className="pl-10"
+                  />
+                </div>
+              </Field>
+            )}
             <Field label="Password">
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} className="pl-10" />
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  required
+                  minLength={6}
+                  className="pl-10"
+                />
               </div>
             </Field>
 
@@ -141,7 +179,7 @@ export function LoginPage() {
           <p className="text-sm text-center text-slate-500 mt-6">
             {mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'}{' '}
             <button
-              onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(null); }}
+              onClick={switchMode}
               className="font-medium text-teal-600 hover:text-teal-700"
             >
               {mode === 'login' ? 'Daftar di sini' : 'Masuk di sini'}

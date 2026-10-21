@@ -13,16 +13,20 @@ export type TaskStatus =
 export type ApprovalStage = 'SPV' | 'Senior_SPV';
 export type ApprovalDecision = 'Approved' | 'Rejected';
 
+/* ID kini berupa integer (SQL Server IDENTITY), bukan uuid. */
+
 export interface Profile {
-  id: string;
+  id: number;
   username: string;
+  email: string | null;
   full_name: string | null;
   role: UserRole;
-  created_at: string;
+  is_active?: boolean;
+  created_at: string | null;
 }
 
 export interface Equipment {
-  id: string;
+  id: number;
   tag_number: string;
   nama_alat: string;
   merk: string | null;
@@ -33,39 +37,76 @@ export interface Equipment {
   range_max: number | null;
   unit: string | null;
   location: string | null;
-  created_at: string;
+  created_at: string | null;
 }
 
 export interface CalibrationTask {
-  id: string;
-  equipment_id: string;
-  technician_id: string | null;
+  id: number;
+  equipment_id: number;
+  technician_id: number | null;
   status: TaskStatus;
   scheduled_date: string;
   completed_at: string | null;
-  created_at: string;
-  equipment?: Equipment;
-  technician?: Profile;
+  created_at: string | null;
+  equipment?: Equipment | null;
+  technician?: Profile | null;
   result?: CalibrationResult | null;
 }
 
+/** Satu baris pengukuran pada tabel as-found / as-left. */
+export interface CalibrationPoint {
+  standard: string;
+  reading: string;
+  error: string;
+}
+
+/** Isi kolom JSON `as_found_data` / `as_left_data`. */
+export interface CalibrationData {
+  points: CalibrationPoint[];
+  unit?: string;
+  parameter?: ParameterType;
+  lkk_notes?: string;
+}
+
 export interface CalibrationResult {
-  id: string;
-  task_id: string;
-  as_found_data: Record<string, unknown> | null;
-  as_left_data: Record<string, unknown> | null;
+  id: number;
+  task_id: number;
+  as_found_data: CalibrationData | null;
+  as_left_data: CalibrationData | null;
   environment_temp: number | null;
   humidity: number | null;
-  created_at: string;
+  created_at: string | null;
 }
 
 export interface Approval {
-  id: string;
-  task_id: string;
-  approver_id: string;
+  id: number;
+  task_id: number;
+  approver_id: number;
   stage: ApprovalStage;
   decision: ApprovalDecision;
   notes: string | null;
-  created_at: string;
+  created_at: string | null;
   approver?: Profile;
+}
+
+/** Ringkasan untuk halaman Dashboard. */
+export interface DashboardStats {
+  equipment: number;
+  tasks: number;
+  pending: number;
+  pending_spv: number;
+  pending_senior: number;
+  approved: number;
+  rejected: number;
+  active: number;
+  recent_tasks: CalibrationTask[];
+}
+
+/** Beban tugas per teknisi (untuk fitur penugasan otomatis). */
+export interface TechnicianWorkload {
+  id: number;
+  username: string;
+  full_name: string | null;
+  role: UserRole;
+  load_count: number;
 }

@@ -1,51 +1,82 @@
 import { useEffect, useState, useCallback } from 'react';
 import { FileText, Download, Eye, ShieldCheck } from 'lucide-react';
 import QRCode from 'qrcode';
-import { supabase } from '@/lib/supabase';
+import { api, downloadFile, errorMessage } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge, ParamBadge } from '@/components/ui/Badges';
 import { EmptyState } from '@/components/ui/EmptyState';
-import type { CalibrationTask, Approval } from '@/lib/types';
+import type { CalibrationTask, Approval, CalibrationData } from '@/lib/types';
 
 export function ReportsPage() {
   const [tasks, setTasks] = useState<CalibrationTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [previewTask, setPreviewTask] = useState<CalibrationTask | null>(null);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [downloading, setDownloading] = useState<number | null>(null);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data } = await supabase
-      .from('calibration_tasks')
-      .select('*, equipment(*), technician(*), result:calibration_results(*)')
-      .eq('status', 'Senior_SPV_Approved')
-      .order('completed_at', { ascending: false });
-    setTasks((data ?? []) as CalibrationTask[]);
-    setLoading(false);
+    try {
+      const data = await api<CalibrationTask[]>('/reports');
+      setTasks(data);
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   const openPreview = useCallback(async (task: CalibrationTask) => {
-    const [aps] = await Promise.all([
-      supabase.from('approvals').select('*, approver:profiles(*)').eq('task_id', task.id).order('created_at', { ascending: true }),
-    ]);
-    setApprovals((aps.data ?? []) as Approval[]);
-    setPreviewTask(task);
-    const verificationPayload = JSON.stringify({
-      taskId: task.id,
-      tag: task.equipment?.tag_number,
-      status: task.status,
-      date: task.completed_at,
-    });
-    const qr = await QRCode.toDataURL(verificationPayload, { margin: 1, width: 160 });
-    setQrDataUrl(qr);
+    setError(null);
+    try {
+      const aps = await api<Approval[]>(`/approvals/task/${task.id}`);
+      setApprovals(aps);
+      setPreviewTask(task);
+
+      const verificationPayload = JSON.stringify({
+        taskId: task.id,
+        tag: task.equipment?.tag_number,
+        status: task.status,
+        date: task.completed_at,
+      });
+      setQrDataUrl(await QRCode.toDataURL(verificationPayload, { margin: 1, width: 160 }));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, []);
+
+  /* Mengunduh PDF langsung dari backend, sehingga hasilnya konsisten
+     dengan dokumen resmi (bukan hasil cetak peramban). */
+  const handleDownload = useCallback(async (task: CalibrationTask) => {
+    setError(null);
+    setDownloading(task.id);
+    try {
+      const docNumber = `LKK-${String(task.id).padStart(8, '0')}`;
+      await downloadFile(
+        `/reports/${task.id}/pdf`,
+        `${docNumber}-${task.equipment?.tag_number ?? 'alat'}.pdf`
+      );
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setDownloading(null);
+    }
   }, []);
 
   return (
     <div>
       <PageHeader title="Laporan Hasil Kalibrasi" subtitle="Laporan yang telah disetujui Senior Supervisor dan siap diterbitkan." icon={FileText} />
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {tasks.length === 0 && !loading ? (
@@ -67,7 +98,12 @@ export function ReportsPage() {
                   <Button size="sm" variant="outline" onClick={() => openPreview(t)}>
                     <Eye className="w-3.5 h-3.5" /> Pratinjau
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => openPreview(t)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={downloading === t.id}
+                    onClick={() => handleDownload(t)}
+                  >
                     <Download className="w-3.5 h-3.5" /> PDF
                   </Button>
                 </div>
@@ -78,23 +114,33 @@ export function ReportsPage() {
       </div>
 
       {previewTask && (
-        <ReportPreview task={previewTask} approvals={approvals} qrDataUrl={qrDataUrl} onClose={() => setPreviewTask(null)} />
+        <ReportPreview
+          task={previewTask}
+          approvals={approvals}
+          qrDataUrl={qrDataUrl}
+          onDownload={() => handleDownload(previewTask)}
+          downloading={downloading === previewTask.id}
+          onClose={() => setPreviewTask(null)}
+        />
       )}
     </div>
   );
 }
 
-function ReportPreview({ task, approvals, qrDataUrl, onClose }: {
+function ReportPreview({ task, approvals, qrDataUrl, onDownload, downloading, onClose }: {
   task: CalibrationTask;
   approvals: Approval[];
   qrDataUrl: string;
+  onDownload: () => void;
+  downloading: boolean;
   onClose: () => void;
 }) {
   const result = task.result;
   const asFound = result?.as_found_data;
   const asLeft = result?.as_left_data;
   const param = task.equipment?.parameter_type ?? '';
-  const unit = (asFound?.unit as string) ?? '';
+  const unit = asFound?.unit ?? '';
+  const docNumber = `LKK-${String(task.id).padStart(8, '0')}`;
 
   const handlePrint = () => {
     const printContents = document.getElementById('report-print-area')?.innerHTML;
@@ -138,7 +184,12 @@ function ReportPreview({ task, approvals, qrDataUrl, onClose }: {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
           <h2 className="text-lg font-semibold text-slate-900">Pratinjau Laporan</h2>
           <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={handlePrint}><Download className="w-3.5 h-3.5" /> Cetak / Simpan PDF</Button>
+            <Button size="sm" variant="outline" onClick={handlePrint}>
+              <Eye className="w-3.5 h-3.5" /> Cetak
+            </Button>
+            <Button size="sm" variant="secondary" loading={downloading} onClick={onDownload}>
+              <Download className="w-3.5 h-3.5" /> Unduh PDF
+            </Button>
             <Button size="sm" variant="ghost" onClick={onClose}>Tutup</Button>
           </div>
         </div>
@@ -148,7 +199,7 @@ function ReportPreview({ task, approvals, qrDataUrl, onClose }: {
             <div>
               <div className="report-title">LAPORAN HASIL KALIBRASI</div>
               <div className="report-subtitle">Sistem Manajemen Kalibrasi Alat Ukur — KalibrasiMS</div>
-              <div className="report-subtitle">No. Dokumen: LKK-{task.id.slice(0, 8).toUpperCase()}</div>
+              <div className="report-subtitle">No. Dokumen: {docNumber}</div>
             </div>
             <div className="text-right">
               <span className="badge">Disetujui Senior SPV</span>
@@ -195,7 +246,7 @@ function ReportPreview({ task, approvals, qrDataUrl, onClose }: {
           {asFound?.lkk_notes != null && (
             <>
               <h3>Catatan LKK</h3>
-              <div className="lkk">{asFound.lkk_notes as string}</div>
+              <div className="lkk">{asFound.lkk_notes}</div>
             </>
           )}
 
@@ -209,7 +260,7 @@ function ReportPreview({ task, approvals, qrDataUrl, onClose }: {
                   <td>{a.stage === 'SPV' ? 'Supervisor' : 'Senior Supervisor'}</td>
                   <td>{a.approver?.full_name ?? a.approver?.username}</td>
                   <td>{a.decision === 'Approved' ? 'Disetujui' : 'Ditolak'}</td>
-                  <td>{new Date(a.created_at).toLocaleDateString('id-ID')}</td>
+                  <td>{a.created_at ? new Date(a.created_at).toLocaleDateString('id-ID') : '—'}</td>
                   <td>{a.notes ?? '—'}</td>
                 </tr>
               ))}
@@ -229,7 +280,7 @@ function ReportPreview({ task, approvals, qrDataUrl, onClose }: {
             <div className="qr-text">
               <strong><ShieldCheck className="inline w-3 h-3 mr-1" />Verifikasi Dokumen</strong><br />
               Pindai QR code untuk memverifikasi keaslian laporan ini.<br />
-              ID Tugas: {task.id.slice(0, 8).toUpperCase()}
+              ID Tugas: {docNumber}
             </div>
           </div>
         </div>
@@ -242,8 +293,8 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   return <div className="info-item"><span className="info-label">{label}: </span><span className="info-value">{value}</span></div>;
 }
 
-function PrintTable({ data, unit }: { data: Record<string, unknown>; unit: string }) {
-  const points = (data.points as Array<{ standard: string; reading: string; error: string }>) ?? [];
+function PrintTable({ data, unit }: { data: CalibrationData; unit: string }) {
+  const points = data.points ?? [];
   return (
     <table>
       <thead><tr><th>No.</th><th>Standar {unit && `(${unit})`}</th><th>Bacaan Alat {unit && `(${unit})`}</th><th>Error {unit && `(${unit})`}</th></tr></thead>

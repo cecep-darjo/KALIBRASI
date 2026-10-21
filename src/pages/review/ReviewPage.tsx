@@ -1,24 +1,29 @@
 import { useEffect, useState } from 'react';
 import { CheckSquare, Check, X, Eye, FileText } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Textarea } from '@/components/ui/Field';
-import { StatusBadge, ParamBadge, RoleBadge } from '@/components/ui/Badges';
+import { StatusBadge, ParamBadge } from '@/components/ui/Badges';
 import { EmptyState } from '@/components/ui/EmptyState';
-import type { CalibrationTask, Approval, ApprovalStage, ApprovalDecision } from '@/lib/types';
+import type {
+  CalibrationTask, Approval, ApprovalStage, ApprovalDecision, CalibrationData,
+} from '@/lib/types';
 
+/*
+  Status tugas setelah keputusan approval ditentukan oleh backend
+  (lihat routes/approvals.js), sehingga tidak perlu dikirim dari sini.
+*/
 interface ReviewPageProps {
   stage: ApprovalStage;
   incomingStatus: 'Submitted' | 'SPV_Approved';
-  approvedStatus: 'SPV_Approved' | 'Senior_SPV_Approved';
   title: string;
   subtitle: string;
 }
 
-export function ReviewPage({ stage, incomingStatus, approvedStatus, title, subtitle }: ReviewPageProps) {
+export function ReviewPage({ stage, incomingStatus, title, subtitle }: ReviewPageProps) {
   const { profile } = useAuth();
   const [tasks, setTasks] = useState<CalibrationTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,49 +34,53 @@ export function ReviewPage({ stage, incomingStatus, approvedStatus, title, subti
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- load() stabil, dipanggil ulang manual setelah aksi
 
   async function load() {
-    const { data } = await supabase
-      .from('calibration_tasks')
-      .select('*, equipment(*), technician(*), result:calibration_results(*)')
-      .eq('status', incomingStatus)
-      .order('scheduled_date', { ascending: false });
-    setTasks((data ?? []) as CalibrationTask[]);
-    setLoading(false);
+    try {
+      setTasks(await api<CalibrationTask[]>(`/tasks?status=${incomingStatus}`));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function openReview(task: CalibrationTask) {
-    const { data: aps } = await supabase
-      .from('approvals')
-      .select('*, approver:profiles(*)')
-      .eq('task_id', task.id)
-      .order('created_at', { ascending: true });
-    setApprovals((aps ?? []) as Approval[]);
-    setReviewTask(task);
-    setNotes('');
-    setDecision('Approved');
     setError(null);
+    try {
+      setApprovals(await api<Approval[]>(`/approvals/task/${task.id}`));
+      setReviewTask(task);
+      setNotes('');
+      setDecision('Approved');
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }
 
   async function submitDecision() {
     if (!reviewTask || !profile) return;
     setActing(true);
     setError(null);
-    const newStatus = decision === 'Approved' ? approvedStatus : 'Rejected';
-    const { error: ae } = await supabase.from('approvals').insert({
-      task_id: reviewTask.id,
-      approver_id: profile.id,
-      stage,
-      decision,
-      notes: notes || null,
-    });
-    if (ae) { setError(ae.message); setActing(false); return; }
-    const { error: te } = await supabase.from('calibration_tasks').update({ status: newStatus }).eq('id', reviewTask.id);
-    if (te) { setError(te.message); setActing(false); return; }
-    setActing(false);
-    setReviewTask(null);
-    load();
+    try {
+      // Backend mencatat jejak audit dan mengubah status tugas dalam satu transaksi.
+      await api('/approvals', {
+        method: 'POST',
+        body: {
+          task_id: reviewTask.id,
+          stage,
+          decision,
+          notes: notes || null,
+        },
+      });
+      setReviewTask(null);
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setActing(false);
+    }
   }
 
   return (
@@ -129,7 +138,7 @@ export function ReviewPage({ stage, incomingStatus, approvedStatus, title, subti
               <div>
                 <h4 className="text-sm font-semibold text-slate-900 mb-1.5">Catatan LKK</h4>
                 <p className="text-sm text-slate-600 rounded-lg bg-slate-50 p-3 border border-slate-100 whitespace-pre-wrap">
-                  {reviewTask.result.as_found_data.lkk_notes as string}
+                  {reviewTask.result.as_found_data.lkk_notes}
                 </p>
               </div>
             )}
@@ -148,7 +157,7 @@ export function ReviewPage({ stage, incomingStatus, approvedStatus, title, subti
                         <p className="font-medium text-slate-800">
                           {a.stage === 'SPV' ? 'Supervisor' : 'Senior Supervisor'}: {a.decision === 'Approved' ? 'Disetujui' : 'Ditolak'}
                         </p>
-                        <p className="text-xs text-slate-400">{a.approver?.full_name ?? a.approver?.username} • {new Date(a.created_at).toLocaleString('id-ID')}</p>
+                        <p className="text-xs text-slate-400">{a.approver?.full_name ?? a.approver?.username} • {a.created_at ? new Date(a.created_at).toLocaleString('id-ID') : '—'}</p>
                         {a.notes && <p className="text-xs text-slate-500 mt-1">{a.notes}</p>}
                       </div>
                     </div>
@@ -191,9 +200,9 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div><p className="text-xs text-slate-400">{label}</p><p className="font-medium text-slate-800">{value}</p></div>;
 }
 
-function ResultTable({ title, data }: { title: string; data: Record<string, unknown> }) {
-  const points = (data.points as Array<{ standard: string; reading: string; error: string }>) ?? [];
-  const unit = (data.unit as string) ?? '';
+function ResultTable({ title, data }: { title: string; data: CalibrationData }) {
+  const points = data.points ?? [];
+  const unit = data.unit ?? '';
   if (points.length === 0) return null;
   return (
     <div>

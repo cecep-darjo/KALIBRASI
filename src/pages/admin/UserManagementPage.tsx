@@ -1,40 +1,113 @@
 import { useEffect, useState } from 'react';
-import { Users, Plus, Trash2, Shield } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { Users, Shield, UserPlus, Trash2 } from 'lucide-react';
+import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { Field, Select } from '@/components/ui/Field';
+import { Field, Input, Select } from '@/components/ui/Field';
 import { RoleBadge } from '@/components/ui/Badges';
 import { EmptyState } from '@/components/ui/EmptyState';
 import type { Profile, UserRole } from '@/lib/types';
+
+const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
+  { value: 'Admin', label: 'Admin' },
+  { value: 'Teknisi', label: 'Teknisi' },
+  { value: 'SPV', label: 'Supervisor (SPV)' },
+  { value: 'Senior_SPV', label: 'Senior Supervisor' },
+];
 
 export function UserManagementPage() {
   const { profile: me } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [editing, setEditing] = useState<Profile | null>(null);
   const [editRole, setEditRole] = useState<UserRole>('Teknisi');
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({
+    username: '', password: '', full_name: '', email: '', role: 'Teknisi' as UserRole,
+  });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    setUsers((data ?? []) as Profile[]);
-    setLoading(false);
+    try {
+      setUsers(await api<Profile[]>('/users'));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function saveRole() {
     if (!editing) return;
-    await supabase.from('profiles').update({ role: editRole }).eq('id', editing.id);
-    setEditing(null);
-    load();
+    setSaving(true);
+    try {
+      await api(`/users/${editing.id}/role`, { method: 'PUT', body: { role: editRole } });
+      setEditing(null);
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createUser() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api('/users', {
+        method: 'POST',
+        body: {
+          username: form.username,
+          password: form.password,
+          full_name: form.full_name || null,
+          email: form.email || null,
+          role: form.role,
+        },
+      });
+      setShowCreate(false);
+      setForm({ username: '', password: '', full_name: '', email: '', role: 'Teknisi' });
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeUser(u: Profile) {
+    if (!confirm(`Hapus pengguna ${u.username}?`)) return;
+    try {
+      await api(`/users/${u.id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }
 
   return (
     <div>
-      <PageHeader title="Manajemen User" subtitle="Kelola pengguna dan peran dalam sistem." icon={Users} />
+      <PageHeader
+        title="Manajemen User"
+        subtitle="Kelola pengguna dan peran dalam sistem."
+        icon={Users}
+        action={<Button onClick={() => setShowCreate(true)}><UserPlus className="w-4 h-4" /> Tambah User</Button>}
+      />
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {users.length === 0 && !loading ? (
           <EmptyState title="Belum ada pengguna" />
@@ -64,11 +137,20 @@ export function UserManagementPage() {
                     </td>
                     <td className="px-5 py-3 text-slate-600">{u.username}</td>
                     <td className="px-5 py-3"><RoleBadge role={u.role} /></td>
-                    <td className="px-5 py-3 text-slate-500">{new Date(u.created_at).toLocaleDateString('id-ID')}</td>
+                    <td className="px-5 py-3 text-slate-500">
+                      {u.created_at ? new Date(u.created_at).toLocaleDateString('id-ID') : '—'}
+                    </td>
                     <td className="px-5 py-3 text-right">
-                      <Button size="sm" variant="outline" onClick={() => { setEditing(u); setEditRole(u.role); }}>
-                        <Shield className="w-3.5 h-3.5" /> Ubah Peran
-                      </Button>
+                      <div className="flex justify-end gap-1.5">
+                        <Button size="sm" variant="outline" onClick={() => { setEditing(u); setEditRole(u.role); }}>
+                          <Shield className="w-3.5 h-3.5" /> Ubah Peran
+                        </Button>
+                        {u.id !== me?.id && (
+                          <Button size="sm" variant="ghost" onClick={() => removeUser(u)}>
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -78,6 +160,7 @@ export function UserManagementPage() {
         )}
       </div>
 
+      {/* Ubah peran */}
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Ubah Peran Pengguna" size="sm">
         {editing && (
           <div className="space-y-4">
@@ -87,18 +170,72 @@ export function UserManagementPage() {
             </div>
             <Field label="Peran Baru">
               <Select value={editRole} onChange={(e) => setEditRole(e.target.value as UserRole)}>
-                <option value="Admin">Admin</option>
-                <option value="Teknisi">Teknisi</option>
-                <option value="SPV">Supervisor (SPV)</option>
-                <option value="Senior_SPV">Senior Supervisor</option>
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
               </Select>
             </Field>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setEditing(null)}>Batal</Button>
-              <Button onClick={saveRole}>Simpan</Button>
+              <Button onClick={saveRole} loading={saving}>Simpan</Button>
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Tambah pengguna */}
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Tambah Pengguna" size="md">
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Username">
+              <Input
+                value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                placeholder="username"
+              />
+            </Field>
+            <Field label="Nama Lengkap">
+              <Input
+                value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                placeholder="Nama lengkap"
+              />
+            </Field>
+            <Field label="Email (opsional)">
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="email@perusahaan.com"
+              />
+            </Field>
+            <Field label="Peran">
+              <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}>
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label="Password" hint="Minimal 6 karakter.">
+            <Input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder="••••••••"
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setShowCreate(false)}>Batal</Button>
+            <Button
+              onClick={createUser}
+              loading={saving}
+              disabled={!form.username || form.password.length < 6}
+            >
+              Tambah
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

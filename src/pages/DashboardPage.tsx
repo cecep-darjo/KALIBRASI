@@ -1,36 +1,41 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Wrench, ClipboardList, CheckSquare, FileText, Gauge, TrendingUp, AlertCircle, CalendarDays } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/Badges';
 import { EmptyState } from '@/components/ui/EmptyState';
-import type { CalibrationTask, Equipment } from '@/lib/types';
+import type { CalibrationTask, DashboardStats } from '@/lib/types';
 import type { LucideIcon } from 'lucide-react';
+
+const EMPTY_STATS: DashboardStats = {
+  equipment: 0, tasks: 0, pending: 0, pending_spv: 0,
+  pending_senior: 0, approved: 0, rejected: 0, active: 0, recent_tasks: [],
+};
 
 export function DashboardPage() {
   const { profile } = useAuth();
-  const [stats, setStats] = useState({ equipment: 0, tasks: 0, pending: 0, approved: 0 });
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [recentTasks, setRecentTasks] = useState<CalibrationTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      const [eq, tasks] = await Promise.all([
-        supabase.from('equipment').select('id', { count: 'exact', head: true }),
-        supabase.from('calibration_tasks').select('*, equipment(*), technician(*)').order('created_at', { ascending: false }).limit(5),
-      ]);
-      const taskCount = tasks.count ?? 0;
-      setStats({
-        equipment: eq.count ?? 0,
-        tasks: taskCount,
-        pending: 0,
-        approved: 0,
+    let active = true;
+    api<DashboardStats>('/dashboard/stats')
+      .then((data) => {
+        if (!active) return;
+        setStats(data);
+        setRecentTasks(data.recent_tasks ?? []);
+      })
+      .catch((err) => {
+        if (active) setError(errorMessage(err));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-      setRecentTasks((tasks.data ?? []) as CalibrationTask[]);
-      setLoading(false);
-    })();
+    return () => { active = false; };
   }, []);
 
   const cards: { label: string; value: number; icon: LucideIcon; color: string }[] = [
@@ -47,6 +52,12 @@ export function DashboardPage() {
         subtitle="Ringkasan sistem manajemen kalibrasi alat ukur."
         icon={Gauge}
       />
+
+      {error && (
+        <div className="mb-6 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {cards.map((c) => (

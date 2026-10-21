@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ClipboardList, Plus, Trash2 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api, errorMessage } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -14,20 +14,37 @@ export function TaskAssignmentPage() {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [techs, setTechs] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [t, e, p] = await Promise.all([
-      supabase.from('calibration_tasks').select('*, equipment(*), technician(*)').order('scheduled_date', { ascending: false }),
-      supabase.from('equipment').select('*').order('tag_number'),
-      supabase.from('profiles').select('*').eq('role', 'Teknisi').order('full_name'),
-    ]);
-    setTasks((t.data ?? []) as CalibrationTask[]);
-    setEquipment((e.data ?? []) as Equipment[]);
-    setTechs((p.data ?? []) as Profile[]);
-    setLoading(false);
+    try {
+      const [t, e, p] = await Promise.all([
+        api<CalibrationTask[]>('/tasks'),
+        api<Equipment[]>('/equipment'),
+        api<Profile[]>('/users/technicians'),
+      ]);
+      setTasks(t);
+      setEquipment(e);
+      setTechs(p);
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeTask(id: number) {
+    if (!confirm('Hapus tugas ini?')) return;
+    try {
+      await api(`/tasks/${id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }
 
   return (
@@ -38,6 +55,12 @@ export function TaskAssignmentPage() {
         icon={ClipboardList}
         action={<Button onClick={() => setShowForm(true)}><Plus className="w-4 h-4" /> Tugaskan</Button>}
       />
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {tasks.length === 0 && !loading ? (
@@ -67,9 +90,7 @@ export function TaskAssignmentPage() {
                     <td className="px-5 py-3 text-slate-500">{new Date(t.scheduled_date).toLocaleDateString('id-ID')}</td>
                     <td className="px-5 py-3"><StatusBadge status={t.status} /></td>
                     <td className="px-5 py-3 text-right">
-                      <Button size="sm" variant="ghost" onClick={async () => {
-                        if (confirm('Hapus tugas ini?')) { await supabase.from('calibration_tasks').delete().eq('id', t.id); load(); }
-                      }}>
+                      <Button size="sm" variant="ghost" onClick={() => removeTask(t.id)}>
                         <Trash2 className="w-3.5 h-3.5 text-red-500" />
                       </Button>
                     </td>
@@ -99,14 +120,20 @@ function TaskForm({ equipment, techs, onClose, onSaved }: { equipment: Equipment
     if (!equipmentId) { setError('Pilih alat terlebih dahulu.'); return; }
     setSaving(true);
     setError(null);
-    const { error } = await supabase.from('calibration_tasks').insert({
-      equipment_id: equipmentId,
-      technician_id: techId || null,
-      scheduled_date: date,
-      status: 'Assigned',
-    });
-    if (error) { setError(error.message); setSaving(false); return; }
-    onSaved();
+    try {
+      await api('/tasks', {
+        method: 'POST',
+        body: {
+          equipment_id: Number(equipmentId),
+          technician_id: techId ? Number(techId) : null,
+          scheduled_date: date,
+        },
+      });
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+      setSaving(false);
+    }
   }
 
   return (

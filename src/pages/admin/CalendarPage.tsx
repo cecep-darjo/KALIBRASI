@@ -1,12 +1,14 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Sparkles, Trash2, X } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { api, errorMessage } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { StatusBadge, ParamBadge } from '@/components/ui/Badges';
-import type { CalibrationTask, Equipment, Profile, TaskStatus } from '@/lib/types';
+import type {
+  CalibrationTask, Equipment, Profile, TaskStatus, TechnicianWorkload,
+} from '@/lib/types';
 
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const DAYS_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -23,6 +25,7 @@ export function CalendarPage() {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [techs, setTechs] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [showForm, setShowForm] = useState(false);
   const [preselectedDate, setPreselectedDate] = useState<string | null>(null);
@@ -31,15 +34,21 @@ export function CalendarPage() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [t, e, p] = await Promise.all([
-      supabase.from('calibration_tasks').select('*, equipment(*), technician(*)').order('scheduled_date', { ascending: true }),
-      supabase.from('equipment').select('*').order('tag_number'),
-      supabase.from('profiles').select('*').eq('role', 'Teknisi').order('full_name'),
-    ]);
-    setTasks((t.data ?? []) as CalibrationTask[]);
-    setEquipment((e.data ?? []) as Equipment[]);
-    setTechs((p.data ?? []) as Profile[]);
-    setLoading(false);
+    try {
+      const [t, e, p] = await Promise.all([
+        api<CalibrationTask[]>('/tasks'),
+        api<Equipment[]>('/equipment'),
+        api<Profile[]>('/users/technicians'),
+      ]);
+      setTasks(t);
+      setEquipment(e);
+      setTechs(p);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   const tasksByDate = useMemo(() => {
@@ -90,6 +99,12 @@ export function CalendarPage() {
         icon={CalendarDays}
         action={<Button onClick={() => { setPreselectedDate(null); setShowForm(true); }}><Plus className="w-4 h-4" /> Tugaskan</Button>}
       />
+
+      {loadError && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4">
@@ -177,7 +192,6 @@ export function CalendarPage() {
         <TaskFormWithAuto
           equipment={equipment}
           techs={techs}
-          tasks={tasks}
           preselectedDate={preselectedDate}
           onClose={() => setShowForm(false)}
           onSaved={() => { setShowForm(false); load(); }}
@@ -185,7 +199,14 @@ export function CalendarPage() {
       )}
 
       {dayDetail && (
-        <DayDetailModal date={dayDetail.date} tasks={dayDetail.tasks} onClose={() => setDayDetail(null)} onAdd={() => { setPreselectedDate(dayDetail.date); setDayDetail(null); setShowForm(true); }} onChanged={load} />
+        <DayDetailModal
+          date={dayDetail.date}
+          tasks={dayDetail.tasks}
+          onClose={() => setDayDetail(null)}
+          onAdd={() => { setPreselectedDate(dayDetail.date); setDayDetail(null); setShowForm(true); }}
+          onChanged={load}
+          onError={setLoadError}
+        />
       )}
     </div>
   );
@@ -203,12 +224,13 @@ function statusColor(status: TaskStatus): string {
   return map[status];
 }
 
-function DayDetailModal({ date, tasks, onClose, onAdd, onChanged }: {
+function DayDetailModal({ date, tasks, onClose, onAdd, onChanged, onError }: {
   date: string;
   tasks: CalibrationTask[];
   onClose: () => void;
   onAdd: () => void;
   onChanged: () => void;
+  onError: (msg: string) => void;
 }) {
   return (
     <Modal open onClose={onClose} title={`Jadwal — ${new Date(date).toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}`} size="md">
@@ -229,7 +251,13 @@ function DayDetailModal({ date, tasks, onClose, onAdd, onChanged }: {
                   <p className="text-xs text-slate-400">Teknisi: {t.technician?.full_name ?? t.technician?.username ?? '—'}</p>
                 </div>
                 <Button size="sm" variant="ghost" onClick={async () => {
-                  if (confirm('Hapus tugas ini?')) { await supabase.from('calibration_tasks').delete().eq('id', t.id); onChanged(); }
+                  if (!confirm('Hapus tugas ini?')) return;
+                  try {
+                    await api(`/tasks/${t.id}`, { method: 'DELETE' });
+                    onChanged();
+                  } catch (err) {
+                    onError(errorMessage(err));
+                  }
                 }}>
                   <Trash2 className="w-3.5 h-3.5 text-red-500" />
                 </Button>
@@ -246,10 +274,9 @@ function DayDetailModal({ date, tasks, onClose, onAdd, onChanged }: {
   );
 }
 
-function TaskFormWithAuto({ equipment, techs, tasks, preselectedDate, onClose, onSaved }: {
+function TaskFormWithAuto({ equipment, techs, preselectedDate, onClose, onSaved }: {
   equipment: Equipment[];
   techs: Profile[];
-  tasks: CalibrationTask[];
   preselectedDate: string | null;
   onClose: () => void;
   onSaved: () => void;
@@ -258,27 +285,54 @@ function TaskFormWithAuto({ equipment, techs, tasks, preselectedDate, onClose, o
   const [techId, setTechId] = useState('');
   const [date, setDate] = useState(preselectedDate ?? toYMD(new Date()));
   const [autoAssign, setAutoAssign] = useState(false);
+  const [workload, setWorkload] = useState<TechnicianWorkload[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const recommendedTech = useMemo(() => pickLeastBusyTech(tasks, techs, date), [tasks, techs, date]);
+  /* Saat penugasan otomatis aktif, tanyakan beban teknisi pada tanggal tersebut
+     ke backend (beban dihitung dalam rentang ±3 hari). */
+  useEffect(() => {
+    if (!autoAssign) {
+      setWorkload(null);
+      return;
+    }
+    let active = true;
+    api<TechnicianWorkload[]>(`/dashboard/workload?date=${date}`)
+      .then((rows) => {
+        if (active) setWorkload(rows);
+      })
+      .catch((err) => {
+        if (active) {
+          setWorkload([]);
+          setError(errorMessage(err));
+        }
+      });
+    return () => { active = false; };
+  }, [autoAssign, date]);
 
-  const effectiveTechId = autoAssign ? (recommendedTech?.id ?? '') : techId;
+  const recommendedTech = workload?.[0] ?? null;
+  const effectiveTechId = autoAssign ? (recommendedTech?.id ?? null) : (techId ? Number(techId) : null);
 
   const save = useCallback(async () => {
     if (!equipmentId) { setError('Pilih alat terlebih dahulu.'); return; }
+    if (autoAssign && !effectiveTechId) { setError('Belum ada teknisi terdaftar untuk penugasan otomatis.'); return; }
     setSaving(true);
     setError(null);
-    const payload = {
-      equipment_id: equipmentId,
-      technician_id: effectiveTechId || null,
-      scheduled_date: date,
-      status: 'Assigned' as TaskStatus,
-    };
-    const { error } = await supabase.from('calibration_tasks').insert(payload);
-    if (error) { setError(error.message); setSaving(false); return; }
-    onSaved();
-  }, [equipmentId, effectiveTechId, date, onSaved]);
+    try {
+      await api('/tasks', {
+        method: 'POST',
+        body: {
+          equipment_id: Number(equipmentId),
+          technician_id: effectiveTechId,
+          scheduled_date: date,
+        },
+      });
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+      setSaving(false);
+    }
+  }, [equipmentId, effectiveTechId, date, autoAssign, onSaved]);
 
   return (
     <Modal open onClose={onClose} title="Tugaskan Kalibrasi" size="md">
@@ -353,29 +407,4 @@ function TaskFormWithAuto({ equipment, techs, tasks, preselectedDate, onClose, o
       </div>
     </Modal>
   );
-}
-
-function pickLeastBusyTech(tasks: CalibrationTask[], techs: Profile[], targetDate: string): Profile | null {
-  if (techs.length === 0) return null;
-  const target = new Date(targetDate);
-  const counts: Record<string, number> = {};
-  for (const t of techs) counts[t.id] = 0;
-  for (const task of tasks) {
-    if (!task.technician_id) continue;
-    // Count tasks within +/- 3 days of the target date as "load"
-    const d = new Date(task.scheduled_date);
-    const diff = Math.abs(d.getTime() - target.getTime()) / 86400000;
-    if (diff <= 3 && counts[task.technician_id] != null) counts[task.technician_id] += 1;
-  }
-  // Pick lowest count, tiebreak by name
-  let best: Profile | null = null;
-  let bestCount = Infinity;
-  for (const t of techs) {
-    const c = counts[t.id] ?? 0;
-    if (c < bestCount || (c === bestCount && best && (t.full_name ?? t.username) < (best.full_name ?? best.username))) {
-      best = t;
-      bestCount = c;
-    }
-  }
-  return best;
 }

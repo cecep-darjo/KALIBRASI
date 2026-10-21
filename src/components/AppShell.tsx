@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Wrench, ClipboardList, Gauge, CheckSquare,
-  FileText, LogOut, Menu, X, ShieldCheck, CalendarDays,
+  FileText, LogOut, Menu, ShieldCheck, CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { RoleBadge } from '@/components/ui/Badges';
