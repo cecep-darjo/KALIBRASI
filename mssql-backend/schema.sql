@@ -98,6 +98,60 @@ ELSE PRINT '[SKIP] dbo.Equipment sudah ada.';
 GO
 
 /* ---------------------------------------------------------------------------
+   2A. STANDARD_INSTRUMENTS (kalibrator standar / alat acuan)
+   --------------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.Standard_Instruments', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Standard_Instruments (
+        id                   INT IDENTITY(1,1) NOT NULL,
+        standard_code        NVARCHAR(50)  NOT NULL,
+        name                 NVARCHAR(200) NOT NULL,
+        parameter_type       NVARCHAR(20)  NOT NULL
+            CONSTRAINT CK_Standard_Instruments_parameter_type
+            CHECK (parameter_type IN (N'Suhu', N'Pressure', N'DP', N'RPM')),
+        manufacturer         NVARCHAR(100) NULL,
+        model                NVARCHAR(100) NULL,
+        serial_number        NVARCHAR(100) NULL,
+        certificate_number   NVARCHAR(100) NULL,
+        range_min            DECIMAL(18,4) NULL,
+        range_max            DECIMAL(18,4) NULL,
+        unit                 NVARCHAR(20)  NULL,
+        calibration_due_date DATE          NULL,
+        master_correction     DECIMAL(18,6) NULL,
+        expanded_uncertainty  DECIMAL(18,6) NULL,
+        calibration_lab       NVARCHAR(200) NULL,
+        is_active            BIT           NOT NULL
+            CONSTRAINT DF_Standard_Instruments_is_active DEFAULT (1),
+        created_at           DATETIME2(0)  NOT NULL
+            CONSTRAINT DF_Standard_Instruments_created_at DEFAULT SYSDATETIME(),
+        updated_at           DATETIME2(0)  NULL,
+        CONSTRAINT PK_Standard_Instruments PRIMARY KEY CLUSTERED (id),
+        CONSTRAINT CK_Standard_Instruments_range
+            CHECK (range_min IS NULL OR range_max IS NULL OR range_min <= range_max)
+    );
+    PRINT '[OK] Tabel dbo.Standard_Instruments dibuat.';
+END
+ELSE PRINT '[SKIP] dbo.Standard_Instruments sudah ada.';
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'UQ_Standard_Instruments_code'
+      AND object_id = OBJECT_ID(N'dbo.Standard_Instruments')
+)
+    CREATE UNIQUE INDEX UQ_Standard_Instruments_code
+        ON dbo.Standard_Instruments(standard_code);
+GO
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_Standard_Instruments_active_parameter'
+      AND object_id = OBJECT_ID(N'dbo.Standard_Instruments')
+)
+    CREATE INDEX IX_Standard_Instruments_active_parameter
+        ON dbo.Standard_Instruments(is_active, parameter_type);
+GO
+
+/* ---------------------------------------------------------------------------
    3. CALIBRATION_TASKS (penugasan kalibrasi)
    --------------------------------------------------------------------------- */
 IF OBJECT_ID(N'dbo.Calibration_Tasks', N'U') IS NULL

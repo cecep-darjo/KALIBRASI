@@ -57,6 +57,11 @@ cp .env.example .env     # lalu sesuaikan isinya (lihat bagian 4)
 Script tersebut bersifat **idempotent** — aman dijalankan berulang kali. Bila
 tabel sudah ada, script akan melewatinya tanpa error.
 
+Untuk database lama yang sudah berjalan, jalankan `setup-standard-instruments.sql`
+di SSMS sebelum menggunakan menu **Kalibrator Standar**. Skrip ini menambahkan
+tabel master standar (bila belum ada) dan kolom koreksi/ketidakpastian/lab yang
+dipakai di laporan kalibrasi.
+
 Setelah selesai, Anda akan melihat ringkasan tabel dan satu akun admin:
 
 | Username | Password | Peran |
@@ -74,6 +79,11 @@ Setelah selesai, Anda akan melihat ringkasan tabel dan satu akun admin:
 | `Calibration_Tasks` | Penugasan kalibrasi |
 | `Calibration_Results` | Data hasil ukur (as-found & as-left, disimpan sebagai JSON) |
 | `Approvals` | Jejak audit approval dua tingkat |
+
+Laporan format **LAPORAN KALIBRASI PRESSURE GAUGE** dapat diterbitkan setelah
+SPV menyetujui hasil. Sebelum submit, teknisi mengisi dua pembacaan P1/P2,
+resolusi DUC, repeatability, dan jadwal kalibrasi berikutnya. Data koreksi,
+ketidakpastian diperluas, dan laboratorium sumber diisi pada master kalibrator.
 
 ---
 

@@ -75,6 +75,30 @@ export function mapEquipment(row) {
   };
 }
 
+export function mapStandardInstrument(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    standard_code: row.standard_code,
+    name: row.name,
+    parameter_type: row.parameter_type,
+    manufacturer: row.manufacturer ?? null,
+    model: row.model ?? null,
+    serial_number: row.serial_number ?? null,
+    certificate_number: row.certificate_number ?? null,
+    range_min: toNumber(row.range_min),
+    range_max: toNumber(row.range_max),
+    unit: row.unit ?? null,
+    calibration_due_date: toDateOnly(row.calibration_due_date),
+    master_correction: toNumber(row.master_correction),
+    expanded_uncertainty: toNumber(row.expanded_uncertainty),
+    calibration_lab: row.calibration_lab ?? null,
+    is_active: Boolean(row.is_active),
+    created_at: toIso(row.created_at),
+    updated_at: toIso(row.updated_at),
+  };
+}
+
 export function mapResult(row) {
   if (!row) return null;
   return {

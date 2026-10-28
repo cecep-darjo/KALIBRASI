@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Wrench, ClipboardList, Gauge, CheckSquare,
   FileText, LogOut, Menu, ShieldCheck, CalendarDays,
+  Scale,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { RoleBadge } from '@/components/ui/Badges';
@@ -19,6 +20,7 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ['Admin', 'Teknisi', 'SPV', 'Senior_SPV'] },
   { label: 'User Management', path: '/admin/users', icon: Users, roles: ['Admin'] },
   { label: 'Data Alat', path: '/admin/equipment', icon: Wrench, roles: ['Admin'] },
+  { label: 'Kalibrator Standar', path: '/admin/standards', icon: Scale, roles: ['Admin'] },
   { label: 'Penugasan Kalibrasi', path: '/admin/tasks', icon: ClipboardList, roles: ['Admin'] },
   { label: 'Kalender Jadwal', path: '/admin/calendar', icon: CalendarDays, roles: ['Admin'] },
   { label: 'Input Kalibrasi', path: '/teknisi/tasks', icon: Gauge, roles: ['Teknisi'] },

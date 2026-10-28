@@ -28,6 +28,22 @@ export class ApiError extends Error {
   }
 }
 
+function readErrorMessage(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value === '[object Object]' ? undefined : value;
+  }
+  if (value && typeof value === 'object') {
+    const data = value as Record<string, unknown>;
+    for (const key of ['message', 'error', 'detail']) {
+      const candidate = data[key];
+      if (typeof candidate === 'string' && candidate !== '[object Object]') {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
+}
+
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
@@ -68,7 +84,7 @@ export async function api<T = unknown>(path: string, options: RequestOptions = {
     let message = `Permintaan gagal (${res.status}).`;
     try {
       const data = await res.json();
-      if (data?.error) message = data.error;
+      message = readErrorMessage(data?.error) ?? readErrorMessage(data) ?? message;
     } catch {
       // Respons bukan JSON — pakai pesan bawaan.
     }

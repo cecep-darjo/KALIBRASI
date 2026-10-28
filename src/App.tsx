@@ -4,6 +4,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { UserManagementPage } from '@/pages/admin/UserManagementPage';
 import { EquipmentPage } from '@/pages/admin/EquipmentPage';
+import { StandardInstrumentsPage } from '@/pages/admin/StandardInstrumentsPage';
 import { TaskAssignmentPage } from '@/pages/admin/TaskAssignmentPage';
 import { CalendarPage } from '@/pages/admin/CalendarPage';
 import { TeknisiTasksPage } from '@/pages/teknisi/TeknisiTasksPage';
@@ -51,6 +52,7 @@ function AppRoutes() {
 
       <Route path="/admin/users" element={<ProtectedRoute roles={['Admin']}><UserManagementPage /></ProtectedRoute>} />
       <Route path="/admin/equipment" element={<ProtectedRoute roles={['Admin']}><EquipmentPage /></ProtectedRoute>} />
+      <Route path="/admin/standards" element={<ProtectedRoute roles={['Admin']}><StandardInstrumentsPage /></ProtectedRoute>} />
       <Route path="/admin/tasks" element={<ProtectedRoute roles={['Admin']}><TaskAssignmentPage /></ProtectedRoute>} />
       <Route path="/admin/calendar" element={<ProtectedRoute roles={['Admin']}><CalendarPage /></ProtectedRoute>} />
 

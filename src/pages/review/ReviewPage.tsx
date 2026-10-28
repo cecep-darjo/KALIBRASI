@@ -123,8 +123,35 @@ export function ReviewPage({ stage, incomingStatus, title, subtitle }: ReviewPag
                 <Info label="Serial" value={reviewTask.equipment?.serial_number ?? '—'} />
                 <Info label="Teknisi" value={reviewTask.technician?.full_name ?? reviewTask.technician?.username ?? '—'} />
                 <Info label="Suhu / Kelembapan" value={`${reviewTask.result?.environment_temp ?? '—'} °C / ${reviewTask.result?.humidity ?? '—'} %RH`} />
+                <Info label="Resolusi DUC" value={`${reviewTask.result?.as_found_data?.duc_resolution ?? '—'} ${reviewTask.result?.as_found_data?.unit ?? ''}`} />
+                <Info label="Repeatability" value={`${reviewTask.result?.as_found_data?.repeatability ?? '—'} ${reviewTask.result?.as_found_data?.unit ?? ''}`} />
+                <Info label="Rekalibrasi" value={reviewTask.result?.as_found_data?.next_calibration_date
+                  ? new Date(`${reviewTask.result.as_found_data.next_calibration_date}T00:00:00`).toLocaleDateString('id-ID') : '—'} />
               </div>
             </div>
+
+            {(reviewTask.result?.as_found_data?.reference_standard
+              ?? reviewTask.result?.as_left_data?.reference_standard) && (() => {
+              const standard = reviewTask.result?.as_found_data?.reference_standard
+                ?? reviewTask.result?.as_left_data?.reference_standard;
+              if (!standard) return null;
+              return (
+                <div className="rounded-xl bg-teal-50 border border-teal-100 p-4 text-sm">
+                  <p className="font-semibold text-teal-900">Kalibrator Standar Acuan</p>
+                  <p className="mt-1 text-teal-800">{standard.standard_code} — {standard.name}</p>
+                  <p className="text-xs text-teal-700">
+                    {[standard.manufacturer, standard.model, standard.serial_number && `SN ${standard.serial_number}`]
+                      .filter(Boolean).join(' · ') || 'Detail alat tidak tersedia'}
+                    {standard.certificate_number ? ` · Sertifikat ${standard.certificate_number}` : ''}
+                  </p>
+                  <p className="mt-1 text-xs text-teal-700">
+                    Koreksi master: {standard.master_correction ?? '—'} · Uexp: {standard.expanded_uncertainty ?? '—'} {standard.unit ?? ''}
+                    {standard.calibration_lab ? ` · Lab ${standard.calibration_lab}` : ''}
+                    {standard.calibration_due_date ? ` · Berlaku sampai ${new Date(`${standard.calibration_due_date.slice(0, 10)}T00:00:00`).toLocaleDateString('id-ID')}` : ''}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* Data tables */}
             {reviewTask.result?.as_found_data != null && (
@@ -213,7 +240,8 @@ function ResultTable({ title, data }: { title: string; data: CalibrationData }) 
             <tr>
               <th className="px-3 py-2 text-left font-medium w-12">No.</th>
               <th className="px-3 py-2 text-left font-medium">Standar {unit && `(${unit})`}</th>
-              <th className="px-3 py-2 text-left font-medium">Bacaan {unit && `(${unit})`}</th>
+              <th className="px-3 py-2 text-left font-medium">P1 {unit && `(${unit})`}</th>
+              <th className="px-3 py-2 text-left font-medium">P2 {unit && `(${unit})`}</th>
               <th className="px-3 py-2 text-left font-medium">Error {unit && `(${unit})`}</th>
             </tr>
           </thead>
@@ -223,6 +251,7 @@ function ResultTable({ title, data }: { title: string; data: CalibrationData }) 
                 <td className="px-3 py-2 text-slate-400">{i + 1}</td>
                 <td className="px-3 py-2 text-slate-700">{p.standard || '—'}</td>
                 <td className="px-3 py-2 text-slate-700">{p.reading || '—'}</td>
+                <td className="px-3 py-2 text-slate-700">{p.reading2 || '—'}</td>
                 <td className="px-3 py-2 text-slate-700">{p.error || '—'}</td>
               </tr>
             ))}

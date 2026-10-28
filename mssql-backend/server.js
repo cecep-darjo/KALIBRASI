@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 
-import { getPool, closePool, sql } from './config/db.js';
+import { getPool, closePool, sql, databaseErrorMessage } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import equipmentRoutes from './routes/equipment.js';
@@ -11,6 +11,7 @@ import resultRoutes from './routes/results.js';
 import approvalRoutes from './routes/approvals.js';
 import dashboardRoutes from './routes/dashboard.js';
 import reportRoutes from './routes/reports.js';
+import standardRoutes from './routes/standards.js';
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -32,7 +33,7 @@ app.get('/api/health', async (_req, res) => {
     const rows = await getPool().then((p) => p.request().query('SELECT 1 AS ok'));
     res.json({ ok: true, database: rows.recordset?.[0]?.ok === 1 ? 'connected' : 'unknown' });
   } catch (err) {
-    res.status(503).json({ ok: false, error: err.message });
+    res.status(503).json({ ok: false, error: databaseErrorMessage(err) });
   }
 });
 
@@ -45,6 +46,7 @@ app.use('/api/results', resultRoutes);
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/standards', standardRoutes);
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint tidak ditemukan.' }));
 
@@ -58,7 +60,9 @@ app.use((err, _req, res, _next) => {
 
   // Terjemahkan error khas SQL Server menjadi pesan yang ramah pengguna.
   let message = err.message || 'Terjadi kesalahan pada server.';
-  if (err.number === 2627 || err.number === 2601 || err.code === 'EREQUEST'
+  if (err.name === 'ConnectionError' || message === '[object Object]') {
+    message = databaseErrorMessage(err);
+  } else if (err.number === 2627 || err.number === 2601 || err.code === 'EREQUEST'
       && /duplicate key|UNIQUE KEY/i.test(message)) {
     message = 'Data dengan nilai unik tersebut sudah ada.';
   } else if (err.number === 547) {

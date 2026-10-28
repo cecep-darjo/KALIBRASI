@@ -40,6 +40,32 @@ export interface Equipment {
   created_at: string | null;
 }
 
+export interface StandardInstrument {
+  id: number;
+  standard_code: string;
+  name: string;
+  parameter_type: ParameterType;
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  certificate_number: string | null;
+  range_min: number | null;
+  range_max: number | null;
+  unit: string | null;
+  calibration_due_date: string | null;
+  master_correction: number | null;
+  expanded_uncertainty: number | null;
+  calibration_lab: string | null;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type StandardInstrumentSnapshot = Pick<StandardInstrument,
+  'id' | 'standard_code' | 'name' | 'parameter_type' | 'manufacturer' | 'model'
+  | 'serial_number' | 'certificate_number' | 'calibration_due_date'
+  | 'unit' | 'master_correction' | 'expanded_uncertainty' | 'calibration_lab'>;
+
 export interface CalibrationTask {
   id: number;
   equipment_id: number;
@@ -57,6 +83,7 @@ export interface CalibrationTask {
 export interface CalibrationPoint {
   standard: string;
   reading: string;
+  reading2?: string;
   error: string;
 }
 
@@ -66,6 +93,10 @@ export interface CalibrationData {
   unit?: string;
   parameter?: ParameterType;
   lkk_notes?: string;
+  reference_standard?: StandardInstrumentSnapshot | null;
+  duc_resolution?: string;
+  repeatability?: string;
+  next_calibration_date?: string;
 }
 
 export interface CalibrationResult {

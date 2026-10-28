@@ -1,4 +1,5 @@
-import sql from 'mssql';
+import tediousSql from 'mssql';
+import msnodesqlv8Sql from 'mssql/msnodesqlv8.js';
 import 'dotenv/config';
 
 /*
@@ -17,13 +18,33 @@ import 'dotenv/config';
 const useTrusted =
   String(process.env.MSSQL_TRUSTED ?? '').toLowerCase() === 'true';
 
+// Driver SQL Server dipilih lewat entry point package mssql. Opsi `driver`
+// di objek konfigurasi tidak mengganti driver default (tedious).
+const sql = useTrusted ? msnodesqlv8Sql : tediousSql;
+
 let config;
 
 if (useTrusted) {
+  const server = process.env.MSSQL_SERVER || 'localhost';
+  const database = process.env.MSSQL_DATABASE || 'DbKalibrasi';
+  const instance = process.env.MSSQL_INSTANCE;
+  const port = Number(process.env.MSSQL_PORT || 1433);
+  const odbcDriver = process.env.MSSQL_ODBC_DRIVER;
+
   config = {
-    server: process.env.MSSQL_SERVER || 'localhost',
-    database: process.env.MSSQL_DATABASE || 'DbKalibrasi',
-    driver: 'msnodesqlv8',
+    server,
+    database,
+    port,
+    ...(odbcDriver ? {
+      connectionString: [
+        `Driver={${odbcDriver}}`,
+        `Server=${instance ? `${server}\\${instance}` : `${server},${port}`}`,
+        `Database=${database}`,
+        'Trusted_Connection=Yes',
+        'TrustServerCertificate=Yes',
+        'Encrypt=No',
+      ].join(';') + ';',
+    } : {}),
     options: {
       trustedConnection: true,
       trustServerCertificate: true,
@@ -54,6 +75,15 @@ if (useTrusted) {
 
 let pool;
 
+export function databaseErrorMessage(err) {
+  if (err?.name === 'ConnectionError' || err?.message === '[object Object]') {
+    return 'Gagal menghubungi database. Pastikan API berjalan dengan akun Windows yang memiliki akses ke SQL Server.';
+  }
+  return typeof err?.message === 'string'
+    ? err.message
+    : 'Terjadi kesalahan saat menghubungi database.';
+}
+
 export async function getPool() {
   if (pool && pool.connected) return pool;
   try {
@@ -64,7 +94,7 @@ export async function getPool() {
     return pool;
   } catch (err) {
     pool = undefined;
-    console.error('[db] Gagal tersambung ke SQL Server:', err.message);
+    console.error('[db] Gagal tersambung ke SQL Server:', databaseErrorMessage(err));
     throw err;
   }
 }
